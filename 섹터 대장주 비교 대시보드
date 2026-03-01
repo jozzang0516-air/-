@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>섹터 대장주 비교 대시보드</title>
+    
+    <!-- Tailwind CSS (스타일링용 CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js (차트 구현용 CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        /* 반투명 카드 (Glassmorphism) 스타일 정의 */
+        body {
+            /* 유리 질감을 돋보이게 하는 은은한 배경 그라데이션 */
+            background: linear-gradient(135deg, #e0e7ff 0%, #fae8ff 50%, #dbeafe 100%);
+            background-attachment: fixed;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.45); /* 반투명 흰색 배경 */
+            backdrop-filter: blur(16px); /* 블러 효과 */
+            -webkit-backdrop-filter: blur(16px); /* 사파리 호환성 */
+            border: 1px solid rgba(255, 255, 255, 0.6); /* 밝은 테두리 */
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05); /* 부드러운 그림자 */
+            border-radius: 1.25rem; /* 둥근 모서리 (Rounded corners) */
+        }
+
+        .glass-header {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        /* 로딩 오버레이 스타일 */
+        #loadingOverlay {
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+    </style>
+</head>
+<body class="font-sans text-gray-800 min-h-screen flex flex-col">
+
+    <!-- 로딩 화면 -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white/60 z-50 flex flex-col items-center justify-center transition-opacity duration-300">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-600 mb-4"></div>
+        <p class="text-lg font-semibold text-gray-700">주식 데이터를 불러오는 중입니다...</p>
+        <p class="text-sm text-gray-500 mt-2">잠시만 기다려주세요.</p>
+    </div>
+
+    <!-- 헤더 -->
+    <header class="glass-header sticky top-0 z-40 px-6 py-4 mb-6 shadow-sm">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <h1 class="text-2xl font-bold text-indigo-900 tracking-tight">섹터 대장주 비교 대시보드</h1>
+            
+            <!-- 종목 선택 드롭다운 (필터) -->
+            <div class="flex items-center gap-3">
+                <label for="stockSelector" class="font-medium text-gray-600">종목 선택:</label>
+                <select id="stockSelector" class="glass-card px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer">
+                    <option value="all">전체 보기 (비교 모드)</option>
+                    <!-- 자바스크립트를 통해 옵션이 동적으로 추가됩니다 -->
+                </select>
+            </div>
+        </div>
+    </header>
+
+    <!-- 메인 컨텐츠 영역 -->
+    <main class="flex-grow max-w-7xl mx-auto px-6 w-full flex flex-col gap-6 mb-12">
+        
+        <!-- 상단 요약 카드 (현재가, 최고가, 최저가) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- 현재가 카드 -->
+            <div class="glass-card p-6 flex flex-col justify-center">
+                <h2 class="text-gray-500 font-semibold mb-1">현재가 (최근 종가)</h2>
+                <div class="flex items-end gap-2">
+                    <span id="cardCurrentPrice" class="text-3xl font-bold text-gray-900">-</span>
+                    <span class="text-gray-600 mb-1">원</span>
+                </div>
+                <p id="cardStockName1" class="text-sm text-indigo-600 mt-2 font-medium">전체 요약</p>
+            </div>
+            
+            <!-- 최고가 카드 -->
+            <div class="glass-card p-6 flex flex-col justify-center">
+                <h2 class="text-gray-500 font-semibold mb-1">기간 내 최고가</h2>
+                <div class="flex items-end gap-2">
+                    <span id="cardHighPrice" class="text-3xl font-bold text-red-600">-</span>
+                    <span class="text-gray-600 mb-1">원</span>
+                </div>
+                <p id="cardStockName2" class="text-sm text-indigo-600 mt-2 font-medium">전체 요약</p>
+            </div>
+
+            <!-- 최저가 카드 -->
+            <div class="glass-card p-6 flex flex-col justify-center">
+                <h2 class="text-gray-500 font-semibold mb-1">기간 내 최저가</h2>
+                <div class="flex items-end gap-2">
+                    <span id="cardLowPrice" class="text-3xl font-bold text-blue-600">-</span>
+                    <span class="text-gray-600 mb-1">원</span>
+                </div>
+                <p id="cardStockName3" class="text-sm text-indigo-600 mt-2 font-medium">전체 요약</p>
+            </div>
+        </div>
+
+        <!-- 라인 차트 영역 -->
+        <div class="glass-card p-6 relative h-[400px] w-full">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">주가 추이 비교</h2>
+            <!-- 차트를 그릴 캔버스 -->
+            <canvas id="stockChart"></canvas>
+        </div>
+
+        <!-- 기간별 수익률 비교 테이블 -->
+        <div class="glass-card p-6 overflow-hidden">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">기간별 수익률 비교</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b-2 border-white/60 text-gray-600">
+                            <th class="py-3 px-4 font-semibold">종목명</th>
+                            <th class="py-3 px-4 font-semibold text-right">현재가</th>
+                            <th class="py-3 px-4 font-semibold text-right">최근 1개월</th>
+                            <th class="py-3 px-4 font-semibold text-right">최근 3개월</th>
+                            <th class="py-3 px-4 font-semibold text-right">최근 6개월</th>
+                        </tr>
+                    </thead>
+                    <tbody id="returnTableBody" class="text-gray-800">
+                        <!-- 자바스크립트를 통해 테이블 내용이 동적으로 렌더링됩니다 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 푸터 -->
+    <footer class="glass-header mt-auto py-6 text-center">
+        <p class="text-gray-500 text-sm font-medium">
+            &copy; 2026 [더성장연구소]. All Rights Reserved.
+        </p>
+    </footer>
+
+    <!-- 자바스크립트 로직 -->
+    <script>
+        // 1. 데이터 설정 (사용자가 제공한 구글 시트 CSV URL 목록)
+        // 참고: 제공해주신 URL이 모두 동일하여 데이터 값은 같게 나오지만, 구조와 로직은 각기 다른 URL을 처리할 수 있도록 완벽히 분리되어 있습니다.
+        const stockSources = [
+            { id: 0, name: '삼성전자', color: 'rgb(30, 58, 138)', url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTEUYmbeVFLAkX-OXxGfd6uQnGUHqJDaS6Ry5PyXMnidRJz1kpqzJNfWkX_qW0FpGjJAXhWvvwVowWO/pub?gid=0&single=true&output=csv' },
+            { id: 1, name: 'SK하이닉스', color: 'rgb(220, 38, 38)', url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTEUYmbeVFLAkX-OXxGfd6uQnGUHqJDaS6Ry5PyXMnidRJz1kpqzJNfWkX_qW0FpGjJAXhWvvwVowWO/pub?gid=0&single=true&output=csv' },
+            { id: 2, name: '현대자동차', color: 'rgb(22, 163, 74)', url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTEUYmbeVFLAkX-OXxGfd6uQnGUHqJDaS6Ry5PyXMnidRJz1kpqzJNfWkX_qW0FpGjJAXhWvvwVowWO/pub?gid=0&single=true&output=csv' },
+            { id: 3, name: 'TIGER 반도체TOP10', color: 'rgb(147, 51, 234)', url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTEUYmbeVFLAkX-OXxGfd6uQnGUHqJDaS6Ry5PyXMnidRJz1kpqzJNfWkX_qW0FpGjJAXhWvvwVowWO/pub?gid=0&single=true&output=csv' },
+            { id: 4, name: 'KODEX 200', color: 'rgb(234, 88, 12)', url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTEUYmbeVFLAkX-OXxGfd6uQnGUHqJDaS6Ry5PyXMnidRJz1kpqzJNfWkX_qW0FpGjJAXhWvvwVowWO/pub?gid=0&single=true&output=csv' },
+            { id: 5, name: '미래에셋증권', color: 'rgb(13, 148, 136)', url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTEUYmbeVFLAkX-OXxGfd6uQnGUHqJDaS6Ry5PyXMnidRJz1kpqzJNfWkX_qW0FpGjJAXhWvvwVowWO/pub?gid=0&single=true&output=csv' },
+            { id: 6, name: 'LG에너지솔루션', color: 'rgb(219, 39, 119)', url: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTEUYmbeVFLAkX-OXxGfd6uQnGUHqJDaS6Ry5PyXMnidRJz1kpqzJNfWkX_qW0FpGjJAXhWvvwVowWO/pub?gid=0&single=true&output=csv' }
+        ];
+
+        // 전역 변수 선언
+        let parsedStocksData = []; // 가공된 주식 데이터 배열
+        let globalChartInstance = null; // Chart.js 인스턴스
+        let globalDates = []; // 차트 X축에 사용될 공통 날짜 배열
+
+        // 2. 초기화 및 실행
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await fetchAllData();
+                initializeUI();
+                renderTable();
+                initChart();
+                updateCards('all'); // 초기 로딩 시 '전체 보기' 상태로 카드 업데이트
+                
+                // 로딩 화면 숨기기
+                const loadingOverlay = document.getElementById('loadingOverlay');
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => loadingOverlay.style.display = 'none', 300);
+
+            } catch (error) {
+                console.error("데이터 로딩 중 오류 발생:", error);
+                alert("데이터를 불러오는 중 문제가 발생했습니다. URL 연결 상태를 확인해주세요.");
+            }
+        });
+
+        // 3. 데이터 가져오기 및 가공 로직
+        async function fetchAllData() {
+            const fetchPromises = stockSources.map(stock => fetch(stock.url).then(res => res.text()));
+            const csvResults = await Promise.all(fetchPromises);
+
+            const allDatesSet = new Set();
+            const tempStockData = [];
+
+            // 각 CSV 텍스트 파싱
+            csvResults.forEach((csvText, index) => {
+                const lines = csvText.trim().split('\n');
+                const history = [];
+                let high = -Infinity;
+                let low = Infinity;
+
+                // 첫 줄(헤더)을 제외하고 데이터 순회
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(',');
+                    if (cols.length >= 2) {
+                        const dateStr = cols[0].trim();
+                        const closePrice = parseFloat(cols[1].trim());
+
+                        if (!isNaN(closePrice)) {
+                            // 차트 호환성을 위해 날짜 문자열을 YYYY-MM-DD 형태로 변환 시도
+                            const dateObj = new Date(dateStr);
+                            const formattedDate = !isNaN(dateObj) ? dateObj.toISOString().split('T')[0] : dateStr;
+                            
+                            allDatesSet.add(formattedDate);
+                            history.push({ date: formattedDate, close: closePrice, dateObj: dateObj });
+
+                            // 최고/최저가 갱신
+                            if (closePrice > high) high = closePrice;
+                            if (closePrice < low) low = closePrice;
+                        }
+                    }
+                }
+
+                // 날짜 오름차순 정렬
+                history.sort((a, b) => a.dateObj - b.dateObj);
+                tempStockData.push({ stockInfo: stockSources[index], history, high, low });
+            });
+
+            // 전체 날짜 목록을 통합하여 정렬 (X축 라벨용)
+            globalDates = Array.from(allDatesSet).sort((a, b) => new Date(a) - new Date(b));
+
+            // 데이터 가공 (수익률 계산 등)
+            parsedStocksData = tempStockData.map(dataObj => {
+                const history = dataObj.history;
+                const currentPrice = history.length > 0 ? history[history.length - 1].close : 0;
+                
+                return {
+                    ...dataObj.stockInfo,
+                    history: history,
+                    currentPrice: currentPrice,
+                    highPrice: dataObj.high,
+                    lowPrice: dataObj.low,
+                    return1M: calculateReturn(history, currentPrice, 1),
+                    return3M: calculateReturn(history, currentPrice, 3),
+                    return6M: calculateReturn(history, currentPrice, 6)
+                };
+            });
+        }
+
+        // 특정 개월 수 이전의 종가를 찾아 수익률을 계산하는 헬퍼 함수
+        function calculateReturn(history, currentPrice, monthsAgo) {
+            if (history.length === 0) return 0;
+            const latestDate = history[history.length - 1].dateObj;
+            
+            // 목표 과거 날짜 설정
+            const targetDate = new Date(latestDate);
+            targetDate.setMonth(targetDate.getMonth() - monthsAgo);
+
+            // 해당 날짜와 가장 가까운 과거의 종가 찾기
+            let pastClose = history[0].close;
+            for (let i = history.length - 1; i >= 0; i--) {
+                if (history[i].dateObj <= targetDate) {
+                    pastClose = history[i].close;
+                    break;
+                }
+            }
+
+            // 수익률 계산 (한국 시장 기준 빨간색/파란색 표기를 위해 부호 유지)
+            if (pastClose === 0) return 0;
+            return ((currentPrice / pastClose) - 1) * 100;
+        }
+
+        // 4. UI 렌더링 로직 (드롭다운, 카드, 테이블)
+        function initializeUI() {
+            const selector = document.getElementById('stockSelector');
+            parsedStocksData.forEach((stock, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = stock.name;
+                selector.appendChild(option);
+            });
+
+            // 드롭다운 변경 이벤트 리스너
+            selector.addEventListener('change', (e) => {
+                const selectedValue = e.target.value;
+                updateCards(selectedValue);
+                updateChartHighlight(selectedValue);
+            });
+        }
+
+        function updateCards(selectedValue) {
+            const nameEl1 = document.getElementById('cardStockName1');
+            const nameEl2 = document.getElementById('cardStockName2');
+            const nameEl3 = document.getElementById('cardStockName3');
+            
+            const currentEl = document.getElementById('cardCurrentPrice');
+            const highEl = document.getElementById('cardHighPrice');
+            const lowEl = document.getElementById('cardLowPrice');
+
+            if (selectedValue === 'all') {
+                // 전체 보기일 경우 상태 표시
+                nameEl1.textContent = nameEl2.textContent = nameEl3.textContent = "종목을 선택하여 세부 정보 확인";
+                currentEl.textContent = "-";
+                highEl.textContent = "-";
+                lowEl.textContent = "-";
+            } else {
+                // 특정 종목 선택 시 해당 종목 데이터 표시
+                const stock = parsedStocksData[parseInt(selectedValue)];
+                nameEl1.textContent = nameEl2.textContent = nameEl3.textContent = stock.name;
+                currentEl.textContent = stock.currentPrice.toLocaleString();
+                highEl.textContent = stock.highPrice.toLocaleString();
+                lowEl.textContent = stock.lowPrice.toLocaleString();
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('returnTableBody');
+            
+            // 등락률 포맷팅 함수 (한국 주식 문화에 맞춤: 상승은 빨강, 하락은 파랑)
+            const formatReturn = (val) => {
+                if (isNaN(val)) return '-';
+                const isPositive = val > 0;
+                const isNegative = val < 0;
+                let colorClass = 'text-gray-500';
+                let sign = '';
+                
+                if (isPositive) { colorClass = 'text-red-500'; sign = '+'; }
+                else if (isNegative) { colorClass = 'text-blue-500'; }
+
+                return `<span class="${colorClass} font-semibold">${sign}${val.toFixed(2)}%</span>`;
+            };
+
+            tbody.innerHTML = parsedStocksData.map(stock => `
+                <tr class="border-b border-white/40 hover:bg-white/30 transition-colors duration-200">
+                    <td class="py-4 px-4 font-medium flex items-center gap-3">
+                        <span class="w-3 h-3 rounded-full shadow-sm" style="background-color: ${stock.color}"></span>
+                        ${stock.name}
+                    </td>
+                    <td class="py-4 px-4 text-right font-semibold">${stock.currentPrice.toLocaleString()}원</td>
+                    <td class="py-4 px-4 text-right">${formatReturn(stock.return1M)}</td>
+                    <td class="py-4 px-4 text-right">${formatReturn(stock.return3M)}</td>
+                    <td class="py-4 px-4 text-right">${formatReturn(stock.return6M)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // 5. 차트 렌더링 및 하이라이트 제어
+        function initChart() {
+            const ctx = document.getElementById('stockChart').getContext('2d');
+            
+            // Chart.js용 데이터셋 구성
+            const datasets = parsedStocksData.map(stock => {
+                // globalDates 기준으로 데이터 매핑 (날짜가 비어있으면 null)
+                const dataMap = new Map();
+                stock.history.forEach(h => dataMap.set(h.date, h.close));
+                
+                const dataArray = globalDates.map(date => dataMap.has(date) ? dataMap.get(date) : null);
+
+                return {
+                    label: stock.name,
+                    data: dataArray,
+                    borderColor: stock.color,
+                    backgroundColor: stock.color,
+                    borderWidth: 2,
+                    pointRadius: 0, // 기본 상태에서는 포인트 숨김 (깔끔하게)
+                    pointHoverRadius: 5,
+                    tension: 0.1, // 약간의 곡선 효과
+                    originalColor: stock.color // 하이라이트 기능을 위해 원본 색상 저장
+                };
+            });
+
+            globalChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: globalDates,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                boxWidth: 8,
+                                font: { family: "'Noto Sans KR', sans-serif", size: 12 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            titleColor: '#1f2937',
+                            bodyColor: '#4b5563',
+                            borderColor: '#e5e7eb',
+                            borderWidth: 1,
+                            padding: 12,
+                            boxPadding: 6,
+                            usePointStyle: true
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { maxTicksLimit: 10, font: { size: 11 } }
+                        },
+                        y: {
+                            border: { display: false },
+                            grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                            ticks: { 
+                                callback: function(value) { return value.toLocaleString() + '원'; },
+                                font: { size: 11 }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChartHighlight(selectedValue) {
+            if (!globalChartInstance) return;
+
+            globalChartInstance.data.datasets.forEach((dataset, i) => {
+                if (selectedValue === 'all') {
+                    // 전체 보기: 모든 라인을 원래 굵기와 색상으로 복구
+                    dataset.borderWidth = 2;
+                    dataset.borderColor = dataset.originalColor;
+                    dataset.backgroundColor = dataset.originalColor;
+                    dataset.hidden = false;
+                } else {
+                    // 특정 종목 선택 시
+                    if (i === parseInt(selectedValue)) {
+                        // 선택된 종목은 굵고 선명하게 강조
+                        dataset.borderWidth = 4;
+                        dataset.borderColor = dataset.originalColor;
+                        dataset.backgroundColor = dataset.originalColor;
+                        dataset.hidden = false;
+                    } else {
+                        // 선택되지 않은 종목은 얇고 투명하게 처리하여 겹쳐서 비교 가능하도록 유지
+                        dataset.borderWidth = 1;
+                        dataset.borderColor = dataset.originalColor.replace('rgb', 'rgba').replace(')', ', 0.15)');
+                        dataset.backgroundColor = dataset.originalColor.replace('rgb', 'rgba').replace(')', ', 0.15)');
+                        dataset.hidden = false; 
+                    }
+                }
+            });
+            globalChartInstance.update();
+        }
+    </script>
+</body>
+</html>
